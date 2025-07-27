@@ -17,7 +17,12 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 fetch_remote_version() {
-  curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" | head -n 5 | grep '^VERSION=' | head -n1 | cut -d'"' -f2
+  local test_url="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-forward.sh"
+  tmpfile=$(mktemp)
+  curl -fsSL -H 'Cache-Control: no-cache' "${test_url}?t=$(date +%s)" > "$tmpfile" || { echo "下载失败"; rm -f "$tmpfile"; return 1; }
+  version=$(head -n 5 "$tmpfile" | grep '^VERSION=' | cut -d'"' -f2)
+  rm -f "$tmpfile"
+  echo "$version"
 }
 
 print_menu() {
