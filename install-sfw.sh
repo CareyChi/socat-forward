@@ -6,19 +6,15 @@ RULE_FILE="$BASE_DIR/rules.txt"
 STARTER_FILE="$BASE_DIR/socat-starter.sh"
 MENU_FILE="$BASE_DIR/socat-forward.sh"
 LINK_FILE="/usr/local/bin/sfw"
-ALPINE_INIT="/etc/init.d/socat-forward"
-CRONTAB_FILE="/etc/crontab"
 
-# 可自行替换以下链接
+# 脚本地址
 MENU_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-forward.sh"
 STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
+ALPINE_SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/alpinelinux/socat-forward-service"
+DEBIAN_SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
 
-green() {
-  printf '\033[32m%s\033[0m\n' "$1"
-}
-red() {
-  printf '\033[31m%s\033[0m\n' "$1"
-}
+green() { printf '\033[32m%s\033[0m\n' "$1"; }
+red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 check_installed() {
   [ -f "$CONFIG_FILE" ] && grep -q '"socatScript1"[[:space:]]*:[[:space:]]*1' "$CONFIG_FILE"
@@ -36,11 +32,14 @@ prompt_uninstall() {
       rm -f "$CONFIG_FILE" "$MENU_FILE" "$STARTER_FILE"
     fi
     [ -f "$LINK_FILE" ] && rm -f "$LINK_FILE"
+
     if [ -f /etc/debian_version ]; then
-      sed -i "\|$STARTER_FILE|d" "$CRONTAB_FILE"
+      systemctl disable socat-forward.service 2>/dev/null
+      rm -f /etc/systemd/system/socat-forward.service
+      systemctl daemon-reload
     elif [ -f /etc/alpine-release ]; then
       rc-update del socat-forward default 2>/dev/null
-      rm -f "$ALPINE_INIT"
+      rm -f /etc/init.d/socat-forward
     fi
     green "卸载完成"
     exit 0
@@ -64,35 +63,39 @@ install_socat() {
   fi
 }
 
-install_script_files() {
+install_files() {
   mkdir -p "$BASE_DIR"
   [ ! -f "$RULE_FILE" ] && touch "$RULE_FILE"
 
-  echo "正在下载主脚本..."
+  echo "下载主脚本..."
   wget -qO "$MENU_FILE" "$MENU_URL" || { red "主脚本下载失败"; exit 1; }
   chmod +x "$MENU_FILE"
 
-  echo "正在下载启动器..."
+  echo "下载启动器..."
   wget -qO "$STARTER_FILE" "$STARTER_URL" || { red "启动器下载失败"; exit 1; }
   chmod +x "$STARTER_FILE"
 
   echo '{"socatScript1": 1}' > "$CONFIG_FILE"
-
   ln -sf "$MENU_FILE" "$LINK_FILE"
 }
 
 setup_autostart() {
   if [ -f /etc/debian_version ]; then
-    grep -qF "$STARTER_FILE" "$CRONTAB_FILE" || echo "@reboot root $STARTER_FILE" >> "$CRONTAB_FILE"
+    echo "配置 systemd 服务..."
+    wget -qO /etc/systemd/system/socat-forward.service "$DEBIAN_SERVICE_URL" || { red "下载 Debian 服务文件失败"; exit 1; }
+    chmod 644 /etc/systemd/system/socat-forward.service
+    systemctl daemon-reload
+    systemctl enable socat-forward.service
+    systemctl start socat-forward.service
   elif [ -f /etc/alpine-release ]; then
-    echo "#!/sbin/openrc-run" > "$ALPINE_INIT"
-    echo "command=\"$STARTER_FILE\"" >> "$ALPINE_INIT"
-    chmod +x "$ALPINE_INIT"
+    echo "配置 OpenRC 服务..."
+    wget -qO /etc/init.d/socat-forward "$ALPINE_SERVICE_URL" || { red "下载 Alpine 服务文件失败"; exit 1; }
+    chmod +x /etc/init.d/socat-forward
     rc-update add socat-forward default
+    rc-service socat-forward start
   fi
 }
 
-### 入口
 echo "检测安装状态..."
 if check_installed; then
   green "已安装"
@@ -105,7 +108,6 @@ else
 fi
 
 install_socat
-install_script_files
+install_files
 setup_autostart
-
-green "安装完成！你可以输入 sfw 来启动主脚本"
+green "安装完成！请输入 sfw 使用主脚本"
