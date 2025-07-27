@@ -5,8 +5,16 @@ RULE_FILE="$BASE_DIR/rules.txt"
 CONFIG_FILE="$BASE_DIR/config.json"
 STARTER_FILE="$BASE_DIR/socat-starter.sh"
 LINK_FILE="/usr/local/bin/sfw"
-DEBIAN_SERVICE_CRON="/etc/crontab"
+DEBIAN_CRON="/etc/crontab"
 ALPINE_INIT="/etc/init.d/socat-forward"
+
+# 彩色输出函数
+green() {
+  printf '\033[32m%s\033[0m\n' "$1"
+}
+red() {
+  printf '\033[31m%s\033[0m\n' "$1"
+}
 
 print_menu() {
   echo "====== socat 端口转发管理器 ======"
@@ -32,35 +40,39 @@ add_rule() {
   read rip
   echo -n "输入目标端口: "
   read rport
+  if [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ]; then
+    red "输入不能为空，操作取消"
+    return
+  fi
   echo "$lport $rip $rport" >> "$RULE_FILE"
-  echo "新增规则: $lport -> $rip:$rport"
+  green "新增规则: $lport -> $rip:$rport"
 }
 
 list_rules() {
   echo "当前转发规则："
-  if [ ! -f "$RULE_FILE" ]; then
+  if [ ! -f "$RULE_FILE" ] || [ ! -s "$RULE_FILE" ]; then
     echo "无规则"
     return
   fi
-  nl "$RULE_FILE" 2>/dev/null || echo "无规则"
+  nl "$RULE_FILE"
 }
 
 delete_rule() {
   list_rules
   echo -n "输入要删除的规则编号: "
   read num
-  if [ -z "$num" ]; then
-    echo "无效输入"
+  if ! echo "$num" | grep -qE '^[0-9]+$'; then
+    red "无效输入"
     return
   fi
   sed -i "${num}d" "$RULE_FILE"
-  echo "已删除规则 #$num"
+  green "已删除规则 #$num"
 }
 
 start_forwarding() {
   if [ ! -f "$STARTER_FILE" ]; then
-    echo "启动脚本不存在，已中止。"
-    exit 1
+    red "启动脚本不存在，已中止。"
+    return
   fi
   echo "正在启动 socat 转发..."
   "$STARTER_FILE"
@@ -68,29 +80,29 @@ start_forwarding() {
 
 enable_autostart() {
   if [ -f /etc/debian_version ]; then
-    grep -qF "$STARTER_FILE" "$DEBIAN_SERVICE_CRON" || echo "@reboot root $STARTER_FILE" >> "$DEBIAN_SERVICE_CRON"
+    grep -qF "$STARTER_FILE" "$DEBIAN_CRON" || echo "@reboot root $STARTER_FILE" >> "$DEBIAN_CRON"
   elif [ -f /etc/alpine-release ]; then
     echo "#!/sbin/openrc-run" > "$ALPINE_INIT"
     echo "command=\"$STARTER_FILE\"" >> "$ALPINE_INIT"
     chmod +x "$ALPINE_INIT"
     rc-update add socat-forward default
   fi
-  echo "已启用开机自启"
+  green "已启用开机自启"
 }
 
 disable_autostart() {
   if [ -f /etc/debian_version ]; then
-    sed -i "\|$STARTER_FILE|d" "$DEBIAN_SERVICE_CRON"
+    sed -i "\|$STARTER_FILE|d" "$DEBIAN_CRON"
   elif [ -f /etc/alpine-release ]; then
     rc-update del socat-forward default >/dev/null 2>&1
     rm -f "$ALPINE_INIT"
   fi
-  echo "已关闭开机自启"
+  green "已关闭开机自启"
 }
 
 is_autostart_enabled() {
   if [ -f /etc/debian_version ]; then
-    grep -qF "$STARTER_FILE" "$DEBIAN_SERVICE_CRON"
+    grep -qF "$STARTER_FILE" "$DEBIAN_CRON"
   elif [ -f /etc/alpine-release ]; then
     [ -f "$ALPINE_INIT" ]
   else
@@ -104,11 +116,11 @@ uninstall() {
   if [ "$ans" = "y" ]; then
     rm -rf "$BASE_DIR"
   else
-    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$LINK_FILE"
+    rm -f "$STARTER_FILE" "$CONFIG_FILE"
   fi
   rm -f "$LINK_FILE"
   disable_autostart
-  echo "卸载完成。"
+  green "卸载完成。"
   exit 0
 }
 
@@ -132,11 +144,11 @@ main_loop() {
         if ! is_autostart_enabled; then
           start_forwarding
         else
-          echo "该选项不可用"
+          red "该选项不可用"
         fi
         ;;
       6) uninstall ;;
-      *) echo "无效选项" ;;
+      *) red "无效选项" ;;
     esac
     echo
   done
