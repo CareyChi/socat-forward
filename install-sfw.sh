@@ -13,6 +13,7 @@ SYSTEMD_SERVICE="/etc/systemd/system/socat-forward.service"
 OPENRC_SERVICE="/etc/init.d/socat-forward"
 
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
+cyan() { printf '\033[36m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 check_command() {
@@ -20,13 +21,13 @@ check_command() {
 }
 
 install_socat() {
+  green "正在安装 socat..."
   if check_command socat; then
     green "socat 已安装"
     return
   fi
   if [ -f /etc/debian_version ]; then
-    apt-get update -qq
-    apt-get install -y socat
+    apt-get update -qq && apt-get install -y socat
   elif [ -f /etc/alpine-release ]; then
     apk add --no-cache socat
   else
@@ -36,24 +37,27 @@ install_socat() {
 }
 
 create_dirs() {
+  green "创建配置目录..."
   [ -d "$BASE_DIR" ] || mkdir -p "$BASE_DIR"
 }
 
 download_files() {
+  green "正在下载主脚本和启动器..."
   curl -fsSL -H 'Cache-Control: no-cache' "$url_menu?t=$(date +%s)" -o "$MENU_FILE" || exit 1
   curl -fsSL -H 'Cache-Control: no-cache' "$url_starter?t=$(date +%s)" -o "$STARTER_FILE" || exit 1
   chmod +x "$MENU_FILE" "$STARTER_FILE"
 }
 
 install_service() {
+  green "正在安装系统服务..."
   if [ -f /etc/debian_version ]; then
-    curl -fsSL -H 'Cache-Control: no-cache' "$url_service_debian?t=$(date +%s)" -o "$SYSTEMD_SERVICE" || exit 1
+    curl -fsSL "$url_service_debian?t=$(date +%s)" -o "$SYSTEMD_SERVICE" || exit 1
     chmod 644 "$SYSTEMD_SERVICE"
     systemctl daemon-reload
     systemctl enable socat-forward.service
     systemctl start socat-forward.service
   elif [ -f /etc/alpine-release ]; then
-    curl -fsSL -H 'Cache-Control: no-cache' "$url_service_alpine?t=$(date +%s)" -o "$OPENRC_SERVICE" || exit 1
+    curl -fsSL "$url_service_alpine?t=$(date +%s)" -o "$OPENRC_SERVICE" || exit 1
     chmod +x "$OPENRC_SERVICE"
     rc-update add socat-forward default
     rc-service socat-forward start
@@ -64,6 +68,7 @@ install_service() {
 }
 
 create_link() {
+  green "创建快捷命令..."
   ln -sf "$MENU_FILE" "$LINK_FILE"
 }
 
@@ -76,11 +81,10 @@ write_install_status() {
 }
 
 uninstall_prompt() {
-  echo -n "检测到已安装，是否卸载？(y/n): "
-  read ans
+  echo -n "检测到已安装，是否卸载？(y/n): "; read ans
   [ "$ans" = "y" ] || exit 0
-  echo -n "是否删除规则文件及相关配置？(y/n): "
-  read del_rules
+  echo -n "是否删除规则文件及相关配置？(y/n): "; read del_rules
+  pkill -f socat
   if [ "$del_rules" = "y" ]; then
     rm -rf "$BASE_DIR"
   else
@@ -111,7 +115,9 @@ install_main() {
   install_service
   create_link
   write_install_status
-  green "安装完成"
+  green "安装完成，使用命令 "
+  cyan "sfw"
+  green " 来运行 socat 转发管理器"
 }
 
 install_main
