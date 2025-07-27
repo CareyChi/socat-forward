@@ -38,6 +38,10 @@ add_rule() {
 
 list_rules() {
   echo "当前转发规则："
+  if [ ! -f "$RULE_FILE" ]; then
+    echo "无规则"
+    return
+  fi
   nl "$RULE_FILE" 2>/dev/null || echo "无规则"
 }
 
@@ -45,6 +49,10 @@ delete_rule() {
   list_rules
   echo -n "输入要删除的规则编号: "
   read num
+  if [ -z "$num" ]; then
+    echo "无效输入"
+    return
+  fi
   sed -i "${num}d" "$RULE_FILE"
   echo "已删除规则 #$num"
 }
@@ -96,7 +104,7 @@ uninstall() {
   if [ "$ans" = "y" ]; then
     rm -rf "$BASE_DIR"
   else
-    rm -f "$STARTER_FILE" "$MENU_FILE" "$CONFIG_FILE"
+    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$LINK_FILE"
   fi
   rm -f "$LINK_FILE"
   disable_autostart
@@ -118,12 +126,14 @@ main_loop() {
           disable_autostart
         else
           enable_autostart
-        fi ;;
+        fi
+        ;;
       5)
         if ! is_autostart_enabled; then
           start_forwarding
         else
-          echo "该选项不可用" ;;
+          echo "该选项不可用"
+        fi
         ;;
       6) uninstall ;;
       *) echo "无效选项" ;;
