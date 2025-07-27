@@ -1,5 +1,5 @@
 #!/bin/sh
-
+v="test"
 url_menu="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-forward.sh"
 url_starter="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
 url_service_debian="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
