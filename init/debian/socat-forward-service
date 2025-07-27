@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/etc/local/socat-forward/socat-starter.sh
+ExecStart=/usr/local/socat-forward/socat-starter.sh
 Restart=always
 RestartSec=5
 
