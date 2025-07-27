@@ -3,10 +3,9 @@
 BASE_DIR="/etc/local/socat-forward"
 RULE_FILE="$BASE_DIR/rules.txt"
 
-# 杀死所有旧socat
+# 杀掉旧 socat 转发
 pkill -f "socat TCP4-LISTEN"
 
-# 读取规则并启动
 [ -f "$RULE_FILE" ] || exit 0
 
 while IFS=' ' read -r LPORT RIP RPORT; do
