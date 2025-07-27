@@ -1,6 +1,6 @@
 #!/sbin/openrc-run
 
 name="socat-forward"
+description="One-shot socat forward starter"
+
 command="/usr/local/socat-forward/socat-starter.sh"
-command_background=true
-pidfile="/run/socat-forward.pid"
