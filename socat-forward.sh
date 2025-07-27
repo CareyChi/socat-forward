@@ -44,7 +44,7 @@ print_menu() {
   fi
 
   echo "5. 手动启动一次转发"
-  echo "6. 检查 socat 运行状态"
+  echo "6. 检查已启动的转发"
   echo "7. 更新脚本"
   echo "0. 卸载服务"
   echo ""
