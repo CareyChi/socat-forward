@@ -17,7 +17,7 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 fetch_remote_version() {
-  curl -fsSL "$MENU_URL" | head -n 5 | grep '^VERSION=' | head -n1 | cut -d'"' -f2
+  curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" | head -n 5 | grep '^VERSION=' | head -n1 | cut -d'"' -f2
 }
 
 print_menu() {
@@ -124,7 +124,7 @@ update_script() {
   echo "正在从远程更新主脚本、启动器及服务..."
 
   # 更新主脚本
-  if ! curl -fsSL -o "$MENU_FILE" "$MENU_URL"; then
+  if ! curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$MENU_FILE"; then
     red "主脚本更新失败"
     return
   fi
@@ -132,7 +132,7 @@ update_script() {
 
   # 更新启动器
   STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
-  if ! curl -fsSL -o "$STARTER_FILE" "$STARTER_URL"; then
+  if ! curl -fsSL -H 'Cache-Control: no-cache' "${STARTER_URL}?t=$(date +%s)" -o "$STARTER_FILE"; then
     red "启动器更新失败"
     return
   fi
@@ -141,7 +141,7 @@ update_script() {
   # 更新服务文件
   if [ -f /etc/debian_version ]; then
     SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
-    if ! curl -fsSL -o "$SYSTEMD_SERVICE" "$SERVICE_URL"; then
+    if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$SYSTEMD_SERVICE"; then
       red "Debian服务文件更新失败"
       return
     fi
@@ -150,7 +150,7 @@ update_script() {
     systemctl restart socat-forward.service
   elif [ -f /etc/alpine-release ]; then
     SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/alpinelinux/socat-forward-service"
-    if ! curl -fsSL -o "$OPENRC_SERVICE" "$SERVICE_URL"; then
+    if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$OPENRC_SERVICE"; then
       red "Alpine服务文件更新失败"
       return
     fi
