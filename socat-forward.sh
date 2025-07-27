@@ -15,7 +15,6 @@ MENU_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-fo
 
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
-cyan() { printf '\033[36m%s\033[0m\n' "$1"; }
 
 fetch_remote_version() {
   curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" | head -n 5 | grep '^VERSION=' | head -n1 | cut -d'"' -f2
@@ -36,6 +35,7 @@ print_menu() {
   echo "3. 删除转发"
   if is_autostart_enabled; then
     echo "4. 关闭开机自启"
+    echo "5. 不可用"
   else
     echo "4. 激活开机自启"
     echo "5. 手动启动一次转发"
@@ -48,49 +48,49 @@ print_menu() {
   echo "==============================="
 }
 
-is_ipv4() {
-  echo "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
-}
-
-is_ipv6() {
-  echo "$1" | grep -Eq ':'
-}
-
 add_rule() {
-  echo "请选择转发协议类型："
-  echo "1. TCP"
-  echo "2. UDP"
-  echo "3. TCP+UDP"
-  read -p "选择(1/2/3): " proto_sel
-  case "$proto_sel" in
+  # 彩蛋选择转发类型
+  echo "请选择转发类型："
+  echo "1) TCP"
+  echo "2) UDP"
+  echo "3) TCP+UDP"
+  echo -n "选择(1-3): "
+  read proto_choice
+  case "$proto_choice" in
     1) proto="tcp" ;;
     2) proto="udp" ;;
-    3) proto="both" ;;
-    *) proto="tcp" ;;
+    3) proto="tcpudp" ;;
+    *) red "无效选项，默认TCP"; proto="tcp" ;;
   esac
 
   echo -n "输入本地监听端口: "; read lport
   echo -n "输入目标IP或域名: "; read rip
   echo -n "输入目标端口: "; read rport
-
-  if is_ipv4 "$rip"; then
-    ip_type="ipv4"
-  elif is_ipv6 "$rip"; then
-    ip_type="ipv6"
-  else
-    echo "目标是域名，请选择目标地址类型:"
-    echo "1. IPv4"
-    echo "2. IPv6"
-    read -p "选择(1/2): " ipver
-    [ "$ipver" = "1" ] && ip_type="ipv4"
-    [ "$ipver" = "2" ] && ip_type="ipv6"
-  fi
-
   [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] && { red "输入不能为空"; return; }
 
-  echo "$lport $rip $rport $ip_type $proto" >> "$RULE_FILE"
-  green "新增规则: $lport -> $rip:$rport ($ip_type/$proto)"
+  # 判断是否是IP，还是域名
+  if echo "$rip" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+    iptype="ipv4"
+  elif echo "$rip" | grep -q ':'; then
+    iptype="ipv6"
+  else
+    # 域名弹菜单选类型
+    echo "目标是域名，请选择要使用的IP类型:"
+    echo "1) IPv4"
+    echo "2) IPv6"
+    echo -n "选择(1-2): "
+    read ip_choice
+    case "$ip_choice" in
+      1) iptype="ipv4" ;;
+      2) iptype="ipv6" ;;
+      *) red "无效选项，默认IPv4"; iptype="ipv4" ;;
+    esac
+  fi
 
+  echo "$lport $rip $rport $iptype $proto" >> "$RULE_FILE"
+  green "新增规则: $lport -> $rip:$rport ($iptype, $proto)"
+
+  # 添加后自动启动应用规则
   start_forwarding
 }
 
@@ -109,7 +109,6 @@ delete_rule() {
   echo "$num" | grep -qE '^[0-9]+$' || { red "无效输入"; return; }
   sed -i "${num}d" "$RULE_FILE"
   green "已删除规则 #$num"
-  start_forwarding
 }
 
 start_forwarding() {
@@ -147,23 +146,19 @@ is_autostart_enabled() {
   fi
 }
 
-check_socat_status() {
-  ps aux | grep '[s]ocat'
-}
-
 uninstall() {
   echo -n "是否同时删除已添加的转发规则？(y/n): "; read ans
-  pkill -f socat 2>/dev/null
-
   if [ "$ans" = "y" ]; then
+    disable_autostart
+    rm -f "$LINK_FILE"
     rm -rf "$BASE_DIR"
   else
-    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$RULE_FILE" "$MENU_FILE"
+    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$LINK_FILE"
+    disable_autostart
   fi
 
-  rm -f "$LINK_FILE"
-
-  disable_autostart
+  # 杀掉所有socat进程
+  pkill socat 2>/dev/null
 
   green "卸载完成。"
   exit 0
@@ -172,12 +167,14 @@ uninstall() {
 update_script() {
   echo "正在从远程更新主脚本、启动器及服务..."
 
+  # 更新主脚本
   if ! curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$MENU_FILE"; then
     red "主脚本更新失败"
     return
   fi
   chmod +x "$MENU_FILE"
 
+  # 更新启动器
   STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
   if ! curl -fsSL -H 'Cache-Control: no-cache' "${STARTER_URL}?t=$(date +%s)" -o "$STARTER_FILE"; then
     red "启动器更新失败"
@@ -185,6 +182,7 @@ update_script() {
   fi
   chmod +x "$STARTER_FILE"
 
+  # 更新服务文件
   if [ -f /etc/debian_version ]; then
     SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
     if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$SYSTEMD_SERVICE"; then
@@ -230,9 +228,7 @@ main_loop() {
           red "该选项不可用"
         fi
         ;;
-      6)
-        check_socat_status
-        ;;
+      6) ps aux | grep '[s]ocat' ;;
       9) update_script ;;
       0) uninstall ;;
       *) red "无效选项" ;;
