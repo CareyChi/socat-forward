@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VERSION="V0.0.2"
+VERSION="V0.0.3"
 
 BASE_DIR="/usr/local/socat-forward"
 RULE_FILE="$BASE_DIR/rules.txt"
@@ -17,12 +17,7 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 fetch_remote_version() {
-  local test_url="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-forward.sh"
-  tmpfile=$(mktemp)
-  curl -fsSL -H 'Cache-Control: no-cache' "${test_url}?t=$(date +%s)" > "$tmpfile" || { echo "下载失败"; rm -f "$tmpfile"; return 1; }
-  version=$(head -n 5 "$tmpfile" | grep '^VERSION=' | cut -d'"' -f2)
-  rm -f "$tmpfile"
-  echo "$version"
+  curl -fsSL -H 'Cache-Control: no-cache' "https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-forward.sh?t=$(date +%s)" | head -n 5 | grep '^VERSION=' | head -n1 | cut -d'"' -f2
 }
 
 print_menu() {
@@ -38,64 +33,75 @@ print_menu() {
   echo "1. 新增转发"
   echo "2. 查看转发"
   echo "3. 删除转发"
-
-  if is_autostart_enabled; then
-    echo "4. 关闭开机自启"
-  else
-    echo "4. 激活开机自启"
-  fi
-
-  echo "5. 手动启动一次转发"
-  echo "6. 查看 socat 进程状态"
-  echo "9. 更新主脚本"
+  echo "4. 激活开机自启"
+  echo "5. 关闭开机自启"
+  echo "6. 手动启动一次转发"
+  echo "7. 查看当前 socat 运行状态"
+  echo "8. 更新主脚本"
   echo "0. 卸载服务"
   echo ""
   echo "按 Ctrl+C 退出脚本"
   echo "==============================="
 }
 
-add_rule() {
-  # (添加规则部分不变，添加完调用启动器)
-  echo -n "请选择转发协议类型："
+choose_protocol() {
+  echo "请选择转发协议类型："
   echo "1. TCP"
   echo "2. UDP"
   echo "3. TCP+UDP"
   echo -n "选择(1/2/3): "
   read proto_choice
   case "$proto_choice" in
-    1) proto="tcp" ;;
-    2) proto="udp" ;;
-    3) proto="both" ;;
-    *) red "无效选项"; return ;;
+    1) echo tcp ;;
+    2) echo udp ;;
+    3) echo both ;;
+    *) red "无效选择，默认TCP"; echo tcp ;;
   esac
+}
 
-  echo -n "输入本地监听端口: "; read lport
-  echo -n "输入目标IP或域名: "; read rip
-  echo -n "输入目标端口: "; read rport
-  [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] && { red "输入不能为空"; return; }
+choose_ip_type() {
+  echo "目标是域名，请选择目标地址类型:"
+  echo "1. IPv4"
+  echo "2. IPv6"
+  echo -n "选择(1/2): "
+  read ip_choice
+  case "$ip_choice" in
+    1) echo ipv4 ;;
+    2) echo ipv6 ;;
+    *) red "无效选择，默认IPv4"; echo ipv4 ;;
+  esac
+}
 
-  # 判断IP还是域名，域名则询问IP版本
-  if echo "$rip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+add_rule() {
+  proto=$(choose_protocol)
+
+  echo -n "输入本地监听端口: "
+  read lport
+  echo -n "输入目标IP或域名: "
+  read rip
+  echo -n "输入目标端口: "
+  read rport
+
+  [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] || {
+    red "输入不能为空"
+    return
+  }
+
+  if echo "$rip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
     ip_type="ipv4"
   elif echo "$rip" | grep -q ':'; then
     ip_type="ipv6"
   else
-    echo "目标是域名，请选择目标地址类型:"
-    echo "1. IPv4"
-    echo "2. IPv6"
-    echo -n "选择(1/2): "
-    read ip_choice
-    case "$ip_choice" in
-      1) ip_type="ipv4" ;;
-      2) ip_type="ipv6" ;;
-      *) red "无效选项"; return ;;
-    esac
+    ip_type=$(choose_ip_type)
   fi
 
   echo "$lport $rip $rport $ip_type $proto" >> "$RULE_FILE"
   green "新增规则: $lport -> $rip:$rport ($ip_type/$proto)"
 
-  start_forwarding
+  # 规则添加后立即启动转发
+  if [ -f "$STARTER_FILE" ]; then
+    sh "$STARTER_FILE"
+  fi
 }
 
 list_rules() {
@@ -109,16 +115,16 @@ list_rules() {
 
 delete_rule() {
   list_rules
-  echo -n "输入要删除的规则编号: "; read num
+  echo -n "输入要删除的规则编号: "
+  read num
   echo "$num" | grep -qE '^[0-9]+$' || { red "无效输入"; return; }
   sed -i "${num}d" "$RULE_FILE"
   green "已删除规则 #$num"
-  start_forwarding
 }
 
 start_forwarding() {
   [ ! -f "$STARTER_FILE" ] && { red "启动脚本不存在"; return; }
-  "$STARTER_FILE"
+  sh "$STARTER_FILE"
 }
 
 enable_autostart() {
@@ -143,31 +149,42 @@ disable_autostart() {
   green "已关闭开机自启"
 }
 
-is_autostart_enabled() {
-  if [ -f /etc/debian_version ]; then
-    systemctl is-enabled socat-forward.service >/dev/null 2>&1
-  elif [ -f /etc/alpine-release ]; then
-    rc-status | grep -q socat-forward
-  else
-    return 1
-  fi
-}
-
-check_socat_process() {
-  ps aux | grep '[s]ocat'
+check_forwarding_status() {
+  echo "当前运行的 socat 进程："
+  ps aux | grep '[s]ocat' || echo "无 socat 转发进程运行中"
 }
 
 uninstall() {
-  echo -n "是否同时删除已添加的转发规则？(y/n): "; read ans
+  echo -n "是否同时删除已添加的转发规则？(y/n): "
+  read ans
   if [ "$ans" = "y" ]; then
+    if [ -f /etc/debian_version ]; then
+      systemctl stop socat-forward.service
+      systemctl disable socat-forward.service
+      rm -f "$SYSTEMD_SERVICE"
+      systemctl daemon-reload
+    elif [ -f /etc/alpine-release ]; then
+      rc-service socat-forward stop
+      rc-update del socat-forward default
+      rm -f "$OPENRC_SERVICE"
+    fi
+
     rm -rf "$BASE_DIR"
+    rm -f "$LINK_FILE"
+    green "卸载完成，所有文件和规则已删除。"
   else
-    rm -f "$STARTER_FILE" "$CONFIG_FILE"
+    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$MENU_FILE"
+    if [ -f /etc/debian_version ]; then
+      systemctl stop socat-forward.service
+      systemctl disable socat-forward.service
+      systemctl daemon-reload
+    elif [ -f /etc/alpine-release ]; then
+      rc-service socat-forward stop
+      rc-update del socat-forward default
+    fi
+    rm -f "$LINK_FILE"
+    green "卸载完成，规则文件已保留。"
   fi
-  rm -f "$LINK_FILE"
-  disable_autostart
-  pkill -f "socat"
-  green "卸载完成。"
   exit 0
 }
 
@@ -213,21 +230,17 @@ update_script() {
 main_loop() {
   while true; do
     print_menu
-    echo -n "选择操作: "; read choice
+    echo -n "选择操作: "
+    read choice
     case "$choice" in
       1) add_rule ;;
       2) list_rules ;;
       3) delete_rule ;;
-      4)
-        if is_autostart_enabled; then
-          disable_autostart
-        else
-          enable_autostart
-        fi
-        ;;
-      5) start_forwarding ;;
-      6) check_socat_process ;;
-      9) update_script ;;
+      4) enable_autostart ;;
+      5) disable_autostart ;;
+      6) start_forwarding ;;
+      7) check_forwarding_status ;;
+      8) update_script ;;
       0) uninstall ;;
       *) red "无效选项" ;;
     esac
