@@ -73,13 +73,11 @@ add_rule() {
   echo -n "输入目标IP或域名: "; read rip
   echo -n "输入目标端口: "; read rport
 
-  # 判断是否IP地址
   if is_ipv4 "$rip"; then
     ip_type="ipv4"
   elif is_ipv6 "$rip"; then
     ip_type="ipv6"
   else
-    # 域名，需用户选择ipv4/ipv6
     echo "目标是域名，请选择目标地址类型:"
     echo "1. IPv4"
     echo "2. IPv6"
@@ -133,4 +131,114 @@ enable_autostart() {
 disable_autostart() {
   if [ -f /etc/debian_version ]; then
     systemctl disable socat-forward.service
-    systemctl
+    systemctl stop socat-forward.service
+  elif [ -f /etc/alpine-release ]; then
+    rc-update del socat-forward default
+    rc-service socat-forward stop
+  fi
+  green "已关闭开机自启"
+}
+
+is_autostart_enabled() {
+  if [ -f /etc/debian_version ]; then
+    systemctl is-enabled socat-forward.service >/dev/null 2>&1
+  elif [ -f /etc/alpine-release ]; then
+    rc-status | grep -q socat-forward
+  fi
+}
+
+check_socat_status() {
+  ps aux | grep '[s]ocat'
+}
+
+uninstall() {
+  echo -n "是否同时删除已添加的转发规则？(y/n): "; read ans
+  pkill -f socat 2>/dev/null
+
+  if [ "$ans" = "y" ]; then
+    rm -rf "$BASE_DIR"
+  else
+    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$RULE_FILE" "$MENU_FILE"
+  fi
+
+  rm -f "$LINK_FILE"
+
+  disable_autostart
+
+  green "卸载完成。"
+  exit 0
+}
+
+update_script() {
+  echo "正在从远程更新主脚本、启动器及服务..."
+
+  if ! curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$MENU_FILE"; then
+    red "主脚本更新失败"
+    return
+  fi
+  chmod +x "$MENU_FILE"
+
+  STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
+  if ! curl -fsSL -H 'Cache-Control: no-cache' "${STARTER_URL}?t=$(date +%s)" -o "$STARTER_FILE"; then
+    red "启动器更新失败"
+    return
+  fi
+  chmod +x "$STARTER_FILE"
+
+  if [ -f /etc/debian_version ]; then
+    SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
+    if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$SYSTEMD_SERVICE"; then
+      red "Debian服务文件更新失败"
+      return
+    fi
+    chmod 644 "$SYSTEMD_SERVICE"
+    systemctl daemon-reload
+    systemctl restart socat-forward.service
+  elif [ -f /etc/alpine-release ]; then
+    SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/alpinelinux/socat-forward-service"
+    if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$OPENRC_SERVICE"; then
+      red "Alpine服务文件更新失败"
+      return
+    fi
+    chmod +x "$OPENRC_SERVICE"
+    rc-service socat-forward restart
+  fi
+
+  green "更新完成，重启脚本..."
+  exec sh "$MENU_FILE"
+}
+
+main_loop() {
+  while true; do
+    print_menu
+    echo -n "选择操作: "; read choice
+    case "$choice" in
+      1) add_rule ;;
+      2) list_rules ;;
+      3) delete_rule ;;
+      4)
+        if is_autostart_enabled; then
+          disable_autostart
+        else
+          enable_autostart
+        fi
+        ;;
+      5)
+        if ! is_autostart_enabled; then
+          start_forwarding
+        else
+          red "该选项不可用"
+        fi
+        ;;
+      6)
+        check_socat_status
+        ;;
+      9) update_script ;;
+      0) uninstall ;;
+      *) red "无效选项" ;;
+    esac
+    echo
+  done
+}
+
+main_loop
