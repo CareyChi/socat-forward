@@ -13,8 +13,9 @@ LINK_FILE="/usr/local/bin/sfw"
 SYSTEMD_SERVICE="/etc/systemd/system/socat-forward.service"
 OPENRC_SERVICE="/etc/init.d/socat-forward"
 
-green() { printf '\033[32m%s\033[0m\n' "$1"; }
+green() { printf '\033[32m%s\033[0m' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
+cyan() { printf '\033[36m%s\033[0m' "$1"; }
 
 check_command() {
   command -v "$1" >/dev/null 2>&1
@@ -22,20 +23,21 @@ check_command() {
 
 install_socat() {
   if check_command socat; then
-    green "socat 已安装"
+    green "socat 已安装\n"
     return
   fi
-  green "正在安装 socat ..."
   if [ -f /etc/debian_version ]; then
+    echo "检测到 Debian 系统，开始安装 socat..."
     apt-get update -qq
     apt-get install -y socat
   elif [ -f /etc/alpine-release ]; then
+    echo "检测到 Alpine Linux 系统，开始安装 socat..."
     apk add --no-cache socat
   else
     red "未知系统，无法安装 socat"
     exit 1
   fi
-  green "socat 安装完成"
+  green "socat 安装完成\n"
 }
 
 create_dirs() {
@@ -43,22 +45,23 @@ create_dirs() {
 }
 
 download_files() {
-  green "正在下载脚本文件..."
+  echo "下载主脚本..."
   curl -fsSL -H 'Cache-Control: no-cache' "$url_menu?t=$(date +%s)" -o "$MENU_FILE" || exit 1
+  echo "下载启动器脚本..."
   curl -fsSL -H 'Cache-Control: no-cache' "$url_starter?t=$(date +%s)" -o "$STARTER_FILE" || exit 1
   chmod +x "$MENU_FILE" "$STARTER_FILE"
-  green "脚本下载完成"
 }
 
 install_service() {
-  green "正在安装服务..."
   if [ -f /etc/debian_version ]; then
+    echo "安装 systemd 服务..."
     curl -fsSL -H 'Cache-Control: no-cache' "$url_service_debian?t=$(date +%s)" -o "$SYSTEMD_SERVICE" || exit 1
     chmod 644 "$SYSTEMD_SERVICE"
     systemctl daemon-reload
     systemctl enable socat-forward.service
     systemctl start socat-forward.service
   elif [ -f /etc/alpine-release ]; then
+    echo "安装 OpenRC 服务..."
     curl -fsSL -H 'Cache-Control: no-cache' "$url_service_alpine?t=$(date +%s)" -o "$OPENRC_SERVICE" || exit 1
     chmod +x "$OPENRC_SERVICE"
     rc-update add socat-forward default
@@ -67,12 +70,10 @@ install_service() {
     red "未知系统，无法安装服务"
     exit 1
   fi
-  green "服务安装并启动完成"
 }
 
 create_link() {
   ln -sf "$MENU_FILE" "$LINK_FILE"
-  green "软连接已创建，使用 \033[36msfw\033[0m 命令运行管理脚本"
 }
 
 read_install_status() {
@@ -91,39 +92,32 @@ uninstall_prompt() {
   echo -n "是否同时删除已添加的转发规则？(y/n): "
   read del_rules
 
+  echo "正在停止所有 socat 进程..."
+  pkill socat 2>/dev/null
+
   if [ "$del_rules" = "y" ]; then
-    green "正在停止并删除服务..."
-    if [ -f /etc/debian_version ]; then
-      systemctl stop socat-forward.service
-      systemctl disable socat-forward.service
-      rm -f "$SYSTEMD_SERVICE"
-      systemctl daemon-reload
-    elif [ -f /etc/alpine-release ]; then
-      rc-service socat-forward stop
-      rc-update del socat-forward default
-      rm -f "$OPENRC_SERVICE"
-    fi
-
-    green "正在删除程序文件和规则..."
+    echo "删除规则文件及相关配置..."
     rm -rf "$BASE_DIR"
-    rm -f "$LINK_FILE"
   else
-    green "仅删除程序文件和服务配置，保留规则文件"
+    echo "保留规则文件，删除其他安装文件..."
     rm -f "$MENU_FILE" "$STARTER_FILE" "$CONFIG_FILE"
-
-    if [ -f /etc/debian_version ]; then
-      systemctl stop socat-forward.service
-      systemctl disable socat-forward.service
-      systemctl daemon-reload
-    elif [ -f /etc/alpine-release ]; then
-      rc-service socat-forward stop
-      rc-update del socat-forward default
-    fi
-
-    rm -f "$LINK_FILE"
   fi
 
-  green "卸载完成"
+  echo "删除软连接..."
+  rm -f "$LINK_FILE"
+
+  if [ -f /etc/debian_version ]; then
+    systemctl disable socat-forward.service
+    systemctl stop socat-forward.service
+    rm -f "$SYSTEMD_SERVICE"
+    systemctl daemon-reload
+  elif [ -f /etc/alpine-release ]; then
+    rc-service socat-forward stop
+    rc-update del socat-forward default
+    rm -f "$OPENRC_SERVICE"
+  fi
+
+  green "卸载完成\n"
   exit 0
 }
 
@@ -137,7 +131,9 @@ install_main() {
   install_service
   create_link
   write_install_status
-  green "安装完成！请使用 \033[36msfw\033[0m 命令运行 socat 转发管理脚本。"
+  printf "安装完成！请使用 "
+  cyan "sfw"
+  printf " 命令运行 socat 转发管理脚本。\n"
 }
 
 install_main
