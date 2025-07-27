@@ -112,4 +112,4 @@ install_main() {
   install_service
   create_link
   write_install_status
-  green "
+  green
