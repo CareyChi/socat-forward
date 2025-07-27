@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VERSION="V0.0.5"
+VERSION="V0.0.1"
 
 BASE_DIR="/usr/local/socat-forward"
 RULE_FILE="$BASE_DIR/rules.txt"
