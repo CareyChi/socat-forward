@@ -8,7 +8,6 @@ LINK_FILE="/usr/local/bin/sfw"
 DEBIAN_CRON="/etc/crontab"
 ALPINE_INIT="/etc/init.d/socat-forward"
 
-# 彩色输出函数
 green() {
   printf '\033[32m%s\033[0m\n' "$1"
 }
@@ -27,7 +26,7 @@ print_menu() {
     echo "4. 激活开机自启"
     echo "5. 手动启动一次转发"
   fi
-  echo "6. 卸载服务"
+  echo "0. 卸载服务"
   echo
   echo "按 Ctrl+C 退出脚本"
   echo "==============================="
@@ -36,14 +35,16 @@ print_menu() {
 add_rule() {
   echo -n "输入本地监听端口: "
   read lport
-  echo -n "输入目标IP: "
+  echo -n "输入目标IP或域名: "
   read rip
   echo -n "输入目标端口: "
   read rport
+
   if [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ]; then
     red "输入不能为空，操作取消"
     return
   fi
+
   echo "$lport $rip $rport" >> "$RULE_FILE"
   green "新增规则: $lport -> $rip:$rport"
 }
@@ -147,7 +148,7 @@ main_loop() {
           red "该选项不可用"
         fi
         ;;
-      6) uninstall ;;
+      0) uninstall ;;
       *) red "无效选项" ;;
     esac
     echo
