@@ -1,4 +1,5 @@
 #!/bin/sh
+
 VERSION="V0.0.1"
 
 BASE_DIR="/etc/local/socat-forward"
@@ -16,7 +17,7 @@ green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
 fetch_remote_version() {
-  curl -fsSL "$MENU_URL" | grep '^VERSION=' | head -n1 | cut -d'"' -f2
+  curl -fsSL "$MENU_URL" | head -n 5 | grep '^VERSION=' | head -n1 | cut -d'"' -f2
 }
 
 print_menu() {
@@ -48,14 +49,17 @@ add_rule() {
   echo -n "输入本地监听端口: "; read lport
   echo -n "输入目标IP或域名: "; read rip
   echo -n "输入目标端口: "; read rport
-  [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] && red "输入不能为空" && return
+  [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] && { red "输入不能为空"; return; }
   echo "$lport $rip $rport" >> "$RULE_FILE"
   green "新增规则: $lport -> $rip:$rport"
 }
 
 list_rules() {
   echo "当前转发规则："
-  [ ! -f "$RULE_FILE" ] || [ ! -s "$RULE_FILE" ] && echo "无规则" && return
+  if [ ! -f "$RULE_FILE" ] || [ ! -s "$RULE_FILE" ]; then
+    echo "无规则"
+    return
+  fi
   nl "$RULE_FILE"
 }
 
@@ -68,7 +72,7 @@ delete_rule() {
 }
 
 start_forwarding() {
-  [ ! -f "$STARTER_FILE" ] && red "启动脚本不存在" && return
+  [ ! -f "$STARTER_FILE" ] && { red "启动脚本不存在"; return; }
   "$STARTER_FILE"
 }
 
@@ -116,8 +120,45 @@ uninstall() {
 }
 
 update_script() {
-  echo "正在从远程更新主脚本..."
-  curl -fsSL "$MENU_URL" -o "$MENU_FILE" && chmod +x "$MENU_FILE" && green "更新完成，重启脚本..." && exec sh "$MENU_FILE" || red "更新失败"
+  echo "正在从远程更新主脚本、启动器及服务..."
+
+  # 更新主脚本
+  if ! curl -fsSL -o "$MENU_FILE" "$MENU_URL"; then
+    red "主脚本更新失败"
+    return
+  fi
+  chmod +x "$MENU_FILE"
+
+  # 更新启动器
+  STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
+  if ! curl -fsSL -o "$STARTER_FILE" "$STARTER_URL"; then
+    red "启动器更新失败"
+    return
+  fi
+  chmod +x "$STARTER_FILE"
+
+  # 更新服务文件
+  if [ -f /etc/debian_version ]; then
+    SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
+    if ! curl -fsSL -o "$SYSTEMD_SERVICE" "$SERVICE_URL"; then
+      red "Debian服务文件更新失败"
+      return
+    fi
+    chmod 644 "$SYSTEMD_SERVICE"
+    systemctl daemon-reload
+    systemctl restart socat-forward.service
+  elif [ -f /etc/alpine-release ]; then
+    SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/alpinelinux/socat-forward-service"
+    if ! curl -fsSL -o "$OPENRC_SERVICE" "$SERVICE_URL"; then
+      red "Alpine服务文件更新失败"
+      return
+    fi
+    chmod +x "$OPENRC_SERVICE"
+    rc-service socat-forward restart
+  fi
+
+  green "更新完成，重启脚本..."
+  exec sh "$MENU_FILE"
 }
 
 main_loop() {
