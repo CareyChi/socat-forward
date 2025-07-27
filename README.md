@@ -1,5 +1,5 @@
 # socat-forward
-基于Socat的高性能端口转发脚本
+基于Socat的轻量高性能端口转发脚本
 
 # 注意
 本脚本当前暂仅完成适配**Debian**系统
