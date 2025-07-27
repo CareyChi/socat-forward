@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VERSION="V0.0.1"
+VERSION="V0.0.2"
 
 BASE_DIR="/etc/local/socat-forward"
 RULE_FILE="$BASE_DIR/rules.txt"
@@ -21,7 +21,8 @@ fetch_remote_version() {
 }
 
 print_menu() {
-  echo "\n当前版本号: $VERSION"
+  echo ""
+  echo "当前版本号: $VERSION"
   remote_ver=$(fetch_remote_version)
   echo "最新版本号: $remote_ver"
   if [ "$remote_ver" != "" ] && [ "$remote_ver" != "$VERSION" ]; then
@@ -40,7 +41,7 @@ print_menu() {
   fi
   echo "9. 更新主脚本"
   echo "0. 卸载服务"
-  echo
+  echo ""
   echo "按 Ctrl+C 退出脚本"
   echo "==============================="
 }
