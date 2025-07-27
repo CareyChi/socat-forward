@@ -1,10 +1,11 @@
 #!/bin/sh
 
 # ====== 设置下载地址 ======
-url_menu="https://your-domain.com/socat-forward.sh"
-url_starter="https://your-domain.com/socat-starter.sh"
+url_menu="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-forward.sh"
+url_starter="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
 
-# ====== 路径定义 ======
+# 安装脚本地址暂不需要在这里用
+
 BASE_DIR="/etc/local/socat-forward"
 CONFIG_FILE="$BASE_DIR/config.json"
 RULE_FILE="$BASE_DIR/rules.txt"
@@ -12,7 +13,6 @@ MENU_FILE="$BASE_DIR/socat-forward.sh"
 STARTER_FILE="$BASE_DIR/socat-starter.sh"
 LINK_FILE="/usr/local/bin/sfw"
 
-# ====== 彩色输出函数 ======
 green() {
   printf '\033[32m%s\033[0m\n' "$1"
 }
@@ -21,9 +21,7 @@ red() {
 }
 
 check_socat() {
-  if command -v socat >/dev/null 2>&1; then
-    return
-  fi
+  if command -v socat >/dev/null 2>&1; then return; fi
   echo "未检测到 socat，正在安装..."
   if [ -f /etc/alpine-release ]; then
     apk update && apk add socat
