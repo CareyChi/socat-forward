@@ -1,0 +1,12 @@
+[Unit]
+Description=socat forward service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/etc/local/socat-forward/socat-starter.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
