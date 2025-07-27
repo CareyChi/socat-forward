@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VERSION="V0.0.3"
+VERSION="V0.0.2"
 
 BASE_DIR="/usr/local/socat-forward"
 RULE_FILE="$BASE_DIR/rules.txt"
@@ -33,14 +33,15 @@ print_menu() {
   echo "1. 新增转发"
   echo "2. 查看转发"
   echo "3. 删除转发"
+
   if is_autostart_enabled; then
     echo "4. 关闭开机自启"
-    echo "5. 不可用"
   else
     echo "4. 激活开机自启"
-    echo "5. 手动启动一次转发"
   fi
-  echo "6. 检查 socat 运行状态"
+
+  echo "5. 手动启动一次转发"
+  echo "6. 查看 socat 进程状态"
   echo "9. 更新主脚本"
   echo "0. 卸载服务"
   echo ""
@@ -49,18 +50,18 @@ print_menu() {
 }
 
 add_rule() {
-  # 彩蛋选择转发类型
-  echo "请选择转发类型："
-  echo "1) TCP"
-  echo "2) UDP"
-  echo "3) TCP+UDP"
-  echo -n "选择(1-3): "
+  # (添加规则部分不变，添加完调用启动器)
+  echo -n "请选择转发协议类型："
+  echo "1. TCP"
+  echo "2. UDP"
+  echo "3. TCP+UDP"
+  echo -n "选择(1/2/3): "
   read proto_choice
   case "$proto_choice" in
     1) proto="tcp" ;;
     2) proto="udp" ;;
-    3) proto="tcpudp" ;;
-    *) red "无效选项，默认TCP"; proto="tcp" ;;
+    3) proto="both" ;;
+    *) red "无效选项"; return ;;
   esac
 
   echo -n "输入本地监听端口: "; read lport
@@ -68,29 +69,27 @@ add_rule() {
   echo -n "输入目标端口: "; read rport
   [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] && { red "输入不能为空"; return; }
 
-  # 判断是否是IP，还是域名
-  if echo "$rip" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
-    iptype="ipv4"
+  # 判断IP还是域名，域名则询问IP版本
+  if echo "$rip" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+    ip_type="ipv4"
   elif echo "$rip" | grep -q ':'; then
-    iptype="ipv6"
+    ip_type="ipv6"
   else
-    # 域名弹菜单选类型
-    echo "目标是域名，请选择要使用的IP类型:"
-    echo "1) IPv4"
-    echo "2) IPv6"
-    echo -n "选择(1-2): "
+    echo "目标是域名，请选择目标地址类型:"
+    echo "1. IPv4"
+    echo "2. IPv6"
+    echo -n "选择(1/2): "
     read ip_choice
     case "$ip_choice" in
-      1) iptype="ipv4" ;;
-      2) iptype="ipv6" ;;
-      *) red "无效选项，默认IPv4"; iptype="ipv4" ;;
+      1) ip_type="ipv4" ;;
+      2) ip_type="ipv6" ;;
+      *) red "无效选项"; return ;;
     esac
   fi
 
-  echo "$lport $rip $rport $iptype $proto" >> "$RULE_FILE"
-  green "新增规则: $lport -> $rip:$rport ($iptype, $proto)"
+  echo "$lport $rip $rport $ip_type $proto" >> "$RULE_FILE"
+  green "新增规则: $lport -> $rip:$rport ($ip_type/$proto)"
 
-  # 添加后自动启动应用规则
   start_forwarding
 }
 
@@ -109,6 +108,7 @@ delete_rule() {
   echo "$num" | grep -qE '^[0-9]+$' || { red "无效输入"; return; }
   sed -i "${num}d" "$RULE_FILE"
   green "已删除规则 #$num"
+  start_forwarding
 }
 
 start_forwarding() {
@@ -143,23 +143,25 @@ is_autostart_enabled() {
     systemctl is-enabled socat-forward.service >/dev/null 2>&1
   elif [ -f /etc/alpine-release ]; then
     rc-status | grep -q socat-forward
+  else
+    return 1
   fi
+}
+
+check_socat_process() {
+  ps aux | grep '[s]ocat'
 }
 
 uninstall() {
   echo -n "是否同时删除已添加的转发规则？(y/n): "; read ans
   if [ "$ans" = "y" ]; then
-    disable_autostart
-    rm -f "$LINK_FILE"
     rm -rf "$BASE_DIR"
   else
-    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$LINK_FILE"
-    disable_autostart
+    rm -f "$STARTER_FILE" "$CONFIG_FILE"
   fi
-
-  # 杀掉所有socat进程
-  pkill socat 2>/dev/null
-
+  rm -f "$LINK_FILE"
+  disable_autostart
+  pkill -f "socat"
   green "卸载完成。"
   exit 0
 }
@@ -167,14 +169,12 @@ uninstall() {
 update_script() {
   echo "正在从远程更新主脚本、启动器及服务..."
 
-  # 更新主脚本
   if ! curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$MENU_FILE"; then
     red "主脚本更新失败"
     return
   fi
   chmod +x "$MENU_FILE"
 
-  # 更新启动器
   STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
   if ! curl -fsSL -H 'Cache-Control: no-cache' "${STARTER_URL}?t=$(date +%s)" -o "$STARTER_FILE"; then
     red "启动器更新失败"
@@ -182,7 +182,6 @@ update_script() {
   fi
   chmod +x "$STARTER_FILE"
 
-  # 更新服务文件
   if [ -f /etc/debian_version ]; then
     SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
     if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$SYSTEMD_SERVICE"; then
@@ -221,14 +220,8 @@ main_loop() {
           enable_autostart
         fi
         ;;
-      5)
-        if ! is_autostart_enabled; then
-          start_forwarding
-        else
-          red "该选项不可用"
-        fi
-        ;;
-      6) ps aux | grep '[s]ocat' ;;
+      5) start_forwarding ;;
+      6) check_socat_process ;;
       9) update_script ;;
       0) uninstall ;;
       *) red "无效选项" ;;
