@@ -16,13 +16,11 @@ MENU_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-fo
 green() { printf '\033[32m%s\033[0m\n' "$1"; }
 red() { printf '\033[31m%s\033[0m\n' "$1"; }
 
-# 远程拉取版本号，写入临时文件读取再删除
 fetch_remote_version() {
   tmpfile=$(mktemp)
-  curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$tmpfile"
-  ver=$(head -n 5 "$tmpfile" | grep '^VERSION=' | head -n1 | cut -d'"' -f2)
+  curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$tmpfile" || { rm -f "$tmpfile"; return; }
+  grep '^VERSION=' "$tmpfile" | head -n1 | cut -d'"' -f2
   rm -f "$tmpfile"
-  echo "$ver"
 }
 
 print_menu() {
@@ -38,15 +36,16 @@ print_menu() {
   echo "1. 新增转发"
   echo "2. 查看转发"
   echo "3. 删除转发"
-  echo "4. 关闭开机自启"
+
+  if is_autostart_enabled; then
+    echo "4. 关闭开机自启"
+  else
+    echo "4. 激活开机自启"
+  fi
+
   echo "5. 手动启动一次转发"
   echo "6. 检查 socat 运行状态"
-  if is_autostart_enabled; then
-    echo "7. 关闭开机自启"
-  else
-    echo "7. 激活开机自启"
-  fi
-  echo "9. 更新脚本"
+  echo "7. 更新脚本"
   echo "0. 卸载服务"
   echo ""
   echo "按 Ctrl+C 退出脚本"
@@ -61,9 +60,9 @@ add_rule() {
   echo -n "选择(1/2/3): "
   read proto_choice
   case "$proto_choice" in
-    1) proto="tcp" ;;
-    2) proto="udp" ;;
-    3) proto="both" ;;
+    1) PROTO="tcp" ;;
+    2) PROTO="udp" ;;
+    3) PROTO="both" ;;
     *) red "无效选择"; return ;;
   esac
 
@@ -73,8 +72,7 @@ add_rule() {
   read rip
   echo -n "输入目标端口: "
   read rport
-
-  [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] && { red "输入不能为空"; return; }
+  [ -z "$lport" ] || [ -z "$rip" ] || [ -z "$rport" ] || [ -z "$PROTO" ] || { red "输入不能为空"; return; }
 
   is_ipv4() {
     echo "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
@@ -83,11 +81,10 @@ add_rule() {
     echo "$1" | grep -Eq ':'
   }
 
-  ip_type=""
   if is_ipv4 "$rip"; then
-    ip_type="ipv4"
+    IP_TYPE="ipv4"
   elif is_ipv6 "$rip"; then
-    ip_type="ipv6"
+    IP_TYPE="ipv6"
   else
     echo "目标是域名，请选择目标地址类型:"
     echo "1. IPv4"
@@ -95,17 +92,19 @@ add_rule() {
     echo -n "选择(1/2): "
     read ip_choice
     case "$ip_choice" in
-      1) ip_type="ipv4" ;;
-      2) ip_type="ipv6" ;;
+      1) IP_TYPE="ipv4" ;;
+      2) IP_TYPE="ipv6" ;;
       *) red "无效选择"; return ;;
     esac
   fi
 
-  echo "$lport $rip $rport $ip_type $proto" >> "$RULE_FILE"
-  green "新增规则: $lport -> $rip:$rport ($ip_type/$proto)"
+  echo "$lport $rip $rport $IP_TYPE $PROTO" >> "$RULE_FILE"
+  green "新增规则: $lport -> $rip:$rport ($IP_TYPE/$PROTO)"
 
-  # 添加完自动启动一次生效
-  start_forwarding
+  # 新增规则后自动启动转发
+  if [ -f "$STARTER_FILE" ]; then
+    sh "$STARTER_FILE"
+  fi
 }
 
 list_rules() {
@@ -124,13 +123,16 @@ delete_rule() {
   echo "$num" | grep -qE '^[0-9]+$' || { red "无效输入"; return; }
   sed -i "${num}d" "$RULE_FILE"
   green "已删除规则 #$num"
-  # 删除后自动生效
-  start_forwarding
 }
 
 start_forwarding() {
   [ ! -f "$STARTER_FILE" ] && { red "启动脚本不存在"; return; }
-  "$STARTER_FILE"
+  sh "$STARTER_FILE"
+}
+
+check_socat_status() {
+  echo "socat 运行状态："
+  ps aux | grep '[s]ocat'
 }
 
 enable_autostart() {
@@ -163,11 +165,6 @@ is_autostart_enabled() {
   fi
 }
 
-check_socat_status() {
-  echo "当前运行的 socat 进程："
-  ps aux | grep '[s]ocat'
-}
-
 uninstall() {
   echo -n "是否同时删除已添加的转发规则？(y/n): "
   read ans
@@ -185,12 +182,13 @@ uninstall() {
       rc-update del socat-forward default
       rm -f "$OPENRC_SERVICE"
     fi
-    green "卸载完成，规则文件已删除。"
+    green "卸载完成，规则及配置已删除。"
   else
-    # 不删除规则文件，删除其他所有
+    # 不删除规则文件，只删除其他文件
     disable_autostart
-    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$MENU_FILE" "$LINK_FILE"
-    green "卸载完成，保留规则文件。"
+    rm -f "$STARTER_FILE" "$CONFIG_FILE" "$MENU_FILE"
+    rm -f "$LINK_FILE"
+    green "卸载完成，规则文件保留。"
   fi
   exit 0
 }
@@ -198,12 +196,14 @@ uninstall() {
 update_script() {
   echo "正在从远程更新主脚本、启动器及服务..."
 
+  # 更新主脚本
   if ! curl -fsSL -H 'Cache-Control: no-cache' "${MENU_URL}?t=$(date +%s)" -o "$MENU_FILE"; then
     red "主脚本更新失败"
     return
   fi
   chmod +x "$MENU_FILE"
 
+  # 更新启动器
   STARTER_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/socat-starter.sh"
   if ! curl -fsSL -H 'Cache-Control: no-cache' "${STARTER_URL}?t=$(date +%s)" -o "$STARTER_FILE"; then
     red "启动器更新失败"
@@ -211,6 +211,7 @@ update_script() {
   fi
   chmod +x "$STARTER_FILE"
 
+  # 更新服务文件
   if [ -f /etc/debian_version ]; then
     SERVICE_URL="https://github.com/CareyChi/socat-forward/raw/refs/heads/main/init/debian/socat-forward-service"
     if ! curl -fsSL -H 'Cache-Control: no-cache' "${SERVICE_URL}?t=$(date +%s)" -o "$SYSTEMD_SERVICE"; then
@@ -243,17 +244,16 @@ main_loop() {
       1) add_rule ;;
       2) list_rules ;;
       3) delete_rule ;;
-      4) disable_autostart ;;
-      5) start_forwarding ;;
-      6) check_socat_status ;;
-      7)
+      4)
         if is_autostart_enabled; then
           disable_autostart
         else
           enable_autostart
         fi
         ;;
-      9) update_script ;;
+      5) start_forwarding ;;
+      6) check_socat_status ;;
+      7) update_script ;;
       0) uninstall ;;
       *) red "无效选项" ;;
     esac
