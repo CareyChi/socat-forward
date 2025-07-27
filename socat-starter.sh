@@ -4,13 +4,9 @@ RULE_FILE="/etc/local/socat-forward/rules.txt"
 
 killall socat 2>/dev/null
 
-if [ ! -f "$RULE_FILE" ]; then
-  exit 0
-fi
+[ -f "$RULE_FILE" ] || exit 0
 
 while read -r lport rip rport; do
-  if [ -z "$lport" ]; then
-    continue
-  fi
+  [ -z "$lport" ] && continue
   nohup socat TCP-LISTEN:"$lport",fork TCP:"$rip":"$rport" >/dev/null 2>&1 &
 done < "$RULE_FILE"
