@@ -3,10 +3,12 @@
 BASE_DIR="/usr/local/socat-forward"
 RULE_FILE="$BASE_DIR/rules.txt"
 
-pkill -f "socat TCP4-LISTEN" 2>/dev/null
-pkill -f "socat TCP6-LISTEN" 2>/dev/null
-pkill -f "socat UDP4-LISTEN" 2>/dev/null
-pkill -f "socat UDP6-LISTEN" 2>/dev/null
+pkill socat
+
+# pkill -f "socat TCP4-LISTEN" 2>/dev/null
+# pkill -f "socat TCP6-LISTEN" 2>/dev/null
+# pkill -f "socat UDP4-LISTEN" 2>/dev/null
+# pkill -f "socat UDP6-LISTEN" 2>/dev/null
 
 [ -f "$RULE_FILE" ] || exit 0
 
